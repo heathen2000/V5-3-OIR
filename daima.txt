@@ -1,0 +1,58 @@
+#引用包
+library(edgeR)
+library(pheatmap)
+library(ggplot2)
+
+inputFile="geneMatrix.txt"        #输入文件
+fdrFilter=0.05                   #fdr临界值
+logFCfilter=1                    #logFC临界值
+conFile="sample1.txt"            #对照组样品
+treatFile="sample2.txt"          #实验组样品
+setwd("C:\\Users\\jgf\\Desktop\\GSE289223")        #设置工作目录
+memory.limit(size = 65000)   
+#读取输入文件，并对输入文件整理
+rt=read.table(inputFile,sep="\t",header=T,check.names=F)
+rt=as.matrix(rt)
+rownames(rt)=rt[,1]
+exp=rt[,2:ncol(rt)]
+dimnames=list(rownames(exp),colnames(exp))
+data=matrix(as.numeric(as.matrix(exp)),nrow=nrow(exp),dimnames=dimnames)
+data=avereps(data)
+data=data[rowMeans(data)>1,]
+
+#读取样品信息
+sample1=read.table(conFile,sep="\t",header=F,check.names=F)
+sample2=read.table(treatFile,sep="\t",header=F,check.names=F)
+conData=data[,as.vector(sample1[,1])]
+treatData=data[,as.vector(sample2[,1])]
+data=cbind(conData,treatData)
+conNum=ncol(conData)
+treatNum=ncol(treatData)
+
+#对数据进行矫正，差异分析
+group=c(rep("con",conNum),rep("treat",treatNum))
+design <- model.matrix(~group)
+y <- DGEList(counts=data,group=group)
+y <- calcNormFactors(y)
+y <- estimateCommonDisp(y)
+y <- estimateTagwiseDisp(y)
+et <- exactTest(y,pair = c("con","treat"))
+ordered_tags <- topTags(et, n=100000)
+
+allDiff=ordered_tags$table
+allDiff=allDiff[is.na(allDiff$FDR)==FALSE,]
+diff=allDiff
+newData=y$pseudo.counts
+
+#输出差异结果
+write.table(diff,file="all.xls",sep="\t",quote=F)
+diffSig = diff[(diff$FDR < fdrFilter & (diff$logFC>logFCfilter | diff$logFC<(-logFCfilter))),]
+diffSigOut=rbind(id=colnames(diffSig),diffSig)
+write.table(diffSigOut, file="diff.xls",sep="\t",quote=F,col.names=F)
+write.table(diffSigOut, file="diff.txt",sep="\t",quote=F,col.names=F)
+
+#输出矫正后的文件
+normalizeExp=rbind(id=colnames(newData),newData)
+write.table(normalizeExp,file="normalizeExp.txt",sep="\t",quote=F,col.names=F)   #输出所有基因校正后的表达值
+diffExp=rbind(id=colnames(newData),newData[rownames(diffSig),])
+write.table(diffExp,file="diffGeneExp.txt",sep="\t",quote=F,col.names=F)         #输出差异基因校正后的表达值
